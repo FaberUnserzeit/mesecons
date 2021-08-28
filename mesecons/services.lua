@@ -74,6 +74,7 @@ minetest.register_on_placenode(mesecon.on_placenode)
 minetest.register_on_dignode(mesecon.on_dignode)
 
 -- Overheating service for fast circuits
+local CHECK_OVERHEAT = mesecon.setting("check_overheat", true)
 local OVERHEAT_MAX = mesecon.setting("overheat_max", 20)
 local COOLDOWN_TIME = mesecon.setting("cooldown_time", 2.0)
 local COOLDOWN_STEP = mesecon.setting("cooldown_granularity", 0.5)
@@ -83,6 +84,9 @@ local object_heat = {}
 
 -- returns true if heat is too high
 function mesecon.do_overheat(pos)
+	if (not CHECK_OVERHEAT) then
+		return false
+	end
 	local id = minetest.hash_node_position(pos)
 	local heat = (object_heat[id] or 0) + 1
 	object_heat[id] = heat
@@ -95,16 +99,26 @@ function mesecon.do_overheat(pos)
 end
 
 function mesecon.do_cooldown(pos)
+	if (not CHECK_OVERHEAT) then
+		return
+	end
 	local id = minetest.hash_node_position(pos)
 	object_heat[id] = nil
 end
 
 function mesecon.get_heat(pos)
+	if (not CHECK_OVERHEAT) then
+		return 0
+	end
 	local id = minetest.hash_node_position(pos)
 	return object_heat[id] or 0
 end
 
 function mesecon.move_hot_nodes(moved_nodes)
+	if (not CHECK_OVERHEAT) then
+		return
+	end
+--
 	local new_heat = {}
 	for _, n in ipairs(moved_nodes) do
 		local old_id = minetest.hash_node_position(n.oldpos)
@@ -133,4 +147,6 @@ local function global_cooldown(dtime)
 		end
 	end
 end
-minetest.register_globalstep(global_cooldown)
+if (CHECK_OVERHEAT) then
+	minetest.register_globalstep(global_cooldown)
+end
