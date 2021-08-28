@@ -1,5 +1,6 @@
 [mesecons]
 
+mesecon.check_overheat (Perform overheat checks) bool true
 mesecon.resumetime (Startup delay) int 4 1 10
 mesecon.overheat_max (Device heat limit) int 20 1 100
 mesecon.cooldown_time (Device cooldown time) float 2.0 0.1 10.0
