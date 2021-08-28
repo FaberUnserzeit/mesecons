@@ -91,10 +91,12 @@ plg.register_nodes({
 	on_construct = function(pos)
 		local meta = minetest.get_meta(pos)
 		local is = { {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} }
+		local regss = "0000000000"
 
 		meta:set_string("instr", lcore.serialize(is))
 		meta:set_int("valid", 0)
 		meta:set_string("infotext", "FPGA")
+		meta:set_string("regss",regss)
 	end,
 	on_rightclick = function(pos, node, clicker)
 		if not minetest.is_player(clicker) then
@@ -249,6 +251,11 @@ plg.from_formspec_fields = function(fields)
 		end
 	end
 	local function read_action(s)
+		-- <PK>
+		--local i = lcore.find_fs_name(s)
+		--return i and lcore.get_operations()[i].gate
+		-- </PK>
+		--<prev>
 		for i, data in ipairs(lcore.get_operations()) do
 			if data.fs_name == s then
 				return data.gate
@@ -321,8 +328,36 @@ plg.update = function(pos)
 	end
 
 	local is = lcore.deserialize(meta:get_string("instr"))
+	-- <PK>
+	local regs = {}
+	local regss = meta:get_string("regss")
+	if (regss ~= "") then
+		for i = 0, 9 do
+			if (regss:sub(i+1,i+1) == "1") then
+				regs[i] = true
+			else
+				regs[i] = false
+			end
+		end
+	end
+	-- </PK>
 	local A, B, C, D = plg.getports(pos)
-	A, B, C, D = lcore.interpret(is, A, B, C, D)
+	A, B, C, D = lcore.interpret(is, A, B, C, D
+	-- <PK>
+	, regs, pos
+	-- </PK>
+	)
+	-- <PK>
+	regss = ""
+	for i = 0, 9 do
+		if (regs[i]) then
+			regss = regss .. "1"
+		else
+			regss = regss .. "0"
+		end
+	end
+	meta:set_string("regss", regss)
+	-- </PK>
 	plg.setports(pos, A, B, C, D)
 end
 
