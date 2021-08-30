@@ -7,6 +7,11 @@ local lcore = dofile(minetest.get_modpath(minetest.get_current_modname()) .. "/l
 dofile(minetest.get_modpath(minetest.get_current_modname()) .. "/tool.lua")(plg)
 
 plg.register_nodes = function(template)
+	for led_on = 0, 1 do
+		local sled = ""
+	   if led_on == 1 then
+			sled = "_led_on"
+		end
 	-- each loop is for one of the 4 IO ports
 	for a = 0, 1 do
 	for b = 0, 1 do
@@ -14,16 +19,20 @@ plg.register_nodes = function(template)
 	for d = 0, 1 do
 		local ndef = table.copy(template)
 		local nodename = "mesecons_fpga:fpga"
-				.. tostring(d) .. tostring(c) .. tostring(b) .. tostring(a)
+				.. tostring(d) .. tostring(c) .. tostring(b) .. tostring(a) .. sled
 
 		-- build top texture string
-		local texture = "jeija_fpga_top.png"
+		local texture = "jeija_fpga_top" .. sled .. ".png"
 		if a == 1 then texture = texture .. "^jeija_microcontroller_LED_A.png" end
 		if b == 1 then texture = texture .. "^jeija_microcontroller_LED_B.png" end
 		if c == 1 then texture = texture .. "^jeija_microcontroller_LED_C.png" end
 		if d == 1 then texture = texture .. "^jeija_microcontroller_LED_D.png" end
 		ndef.tiles[1] = texture
 		ndef.inventory_image = texture
+
+		if (led_on == 1) then
+			ndef.light_source = 8
+		end
 
 		if (a + b + c + d) > 0 then
 			ndef.groups["not_in_creative_inventory"] = 1
@@ -52,6 +61,7 @@ plg.register_nodes = function(template)
 		end
 
 		minetest.register_node(nodename, ndef)
+	end
 	end
 	end
 	end
@@ -91,7 +101,7 @@ plg.register_nodes({
 	on_construct = function(pos)
 		local meta = minetest.get_meta(pos)
 		local is = { {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} }
-		local regss = "0000000000"
+		local regss = "00000000000" -- the last "0" is for the LED-register number 10
 
 		meta:set_string("instr", lcore.serialize(is))
 		meta:set_int("valid", 0)
@@ -175,7 +185,7 @@ plg.to_formspec_string = function(is, err)
 	local function dropdown_op(x, y, name, val)
 		local s = "dropdown[" .. tostring(x) .. "," .. tostring(y) .. ";"
 				.. "0.75,0.5;" .. name .. ";" -- the height seems to be ignored?
-		s = s .. " ,A,B,C,D,0,1,2,3,4,5,6,7,8,9;"
+		s = s .. " ,A,B,C,D,0,1,2,3,4,5,6,7,8,9,L;"
 		if val == nil then
 			s = s .. "0" -- actually selects no field at all
 		elseif val.type == "io" then
@@ -247,7 +257,11 @@ plg.from_formspec_fields = function(fields)
 		elseif s == "A" or s == "B" or s == "C" or s == "D" then
 			return {type = "io", port = s}
 		else
-			return {type = "reg", n = tonumber(s)}
+			if s == "L" then
+				return {type = "reg", n = 10}
+			else
+				return {type = "reg", n = tonumber(s)}
+			end
 		end
 	end
 	local function read_action(s)
@@ -290,7 +304,7 @@ plg.update_meta = function(pos, is)
 	end
 
 	-- reset ports and run programmed logic
-	plg.setports(pos, false, false, false, false)
+	plg.setports(pos, false, false, false, false, false)
 	plg.update(pos)
 
 	-- Refresh open formspecs
@@ -321,7 +335,7 @@ plg.update = function(pos)
 	if meta:get_int("valid") ~= 1 then
 		return
 	elseif mesecon.do_overheat(pos) then
-		plg.setports(pos, false, false, false, false)
+		plg.setports(pos, false, false, false, false, false)
 		meta:set_int("valid", 0)
 		meta:set_string("infotext", "FPGA (overheated)")
 		return
@@ -332,7 +346,7 @@ plg.update = function(pos)
 	local regs = {}
 	local regss = meta:get_string("regss")
 	if (regss ~= "") then
-		for i = 0, 9 do
+		for i = 0, 10  do
 			if (regss:sub(i+1,i+1) == "1") then
 				regs[i] = true
 			else
@@ -349,7 +363,7 @@ plg.update = function(pos)
 	)
 	-- <PK>
 	regss = ""
-	for i = 0, 9 do
+	for i = 0, 10 do
 		if (regs[i]) then
 			regss = regss .. "1"
 		else
@@ -358,7 +372,7 @@ plg.update = function(pos)
 	end
 	meta:set_string("regss", regss)
 	-- </PK>
-	plg.setports(pos, A, B, C, D)
+	plg.setports(pos, A, B, C, D, regs[10])
 end
 
 plg.ports_changed = function(pos, rule, newstate)
@@ -421,12 +435,15 @@ plg.getports = function(pos) -- gets merged states of INPUT & OUTPUT
 	})
 end
 
-plg.setports = function(pos, A, B, C, D) -- sets states of OUTPUT
+plg.setports = function(pos, A, B, C, D, led_on) -- sets states of OUTPUT
 	local base = "mesecons_fpga:fpga"
 
 	local name = base
 			.. (D and "1" or "0") .. (C and "1" or "0")
 			.. (B and "1" or "0") .. (A and "1" or "0")
+	if led_on then
+		name = name .. "_led_on"
+	end
 	minetest.swap_node(pos, {name = name, param2 = minetest.get_node(pos).param2})
 
 	if A ~= nil then

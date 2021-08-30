@@ -52,7 +52,11 @@ lg.serialize = function(t) -- t is the array of fpga-entries.
 		elseif t.type == "io" then
 			return t.port
 		else -- t.type == "reg"
-			return tostring(t.n)
+			if t.n == 10 then
+				return "L"
+			else
+				return tostring(t.n)
+			end
 		end
 	end
 	-- Serialize actions (gates) from eg. "and" to "&"
@@ -88,7 +92,11 @@ lg.deserialize = function(s)
 		elseif c == " " then
 			return nil
 		else
-			return {type = "reg", n = tonumber(c)}
+			if c == "L" then
+				return {type = "reg", n = 10}
+			else
+				return {type = "reg", n = tonumber(c)}
+			end
 		end
 	end
 	-- Deserialize actions (gates) from eg. "&" to "and"
