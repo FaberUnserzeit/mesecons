@@ -128,10 +128,8 @@ plg.register_nodes({
 		plg.open_formspecs[name] = pos
 		local is={}
 		if type(instr) == "string" then
-			minetest.debug ("Mööp");
 			is = lcore.deserialize(instr)
 		else 
-			minetest.debug ("trööt");
 			is = instr
 		end
 		local name_s = meta:get_string("name_s")

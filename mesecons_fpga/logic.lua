@@ -112,7 +112,6 @@ lg.deserialize = function(s)
 	end
 	-- More than 14 instructions (write to all 10 regs + 4 outputs)
 	-- will not pass the write-once requirement of the validator
-	minetest.debug("Anzahl " .. #ret)
 	assert(#ret == 14)
 	return ret
 end

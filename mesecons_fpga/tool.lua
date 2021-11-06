@@ -24,12 +24,9 @@ minetest.register_tool("mesecons_fpga:programmer", {
 		end
 		local name_s = meta:get_string("name_s") or ""
 		local desc_s = meta:get_string("desc_s") or ""
-		minetest.debug("Read name_s via meta:get_string():" .. name_s)
-		minetest.debug("Read desc_s via meta:get_string():" .. desc_s)
 
 		local imeta = itemstack:get_meta()
 		imeta:set_string("instr", instr)
-		minetest.debug("Called imeta:set_string('instr', '" .. instr .. "')")
 		imeta:set_string("infotext", "FPGA-Programmer " .. name_s)
 		imeta:set_string("description", "FPGA-Programmer " .. name_s)
 		imeta:set_string("name_s", name_s)
@@ -61,7 +58,6 @@ minetest.register_tool("mesecons_fpga:programmer", {
 			minetest.sound_play("mesecons_fpga_fail", { pos = user:get_pos(), gain = 0.1, max_hear_distance = 4 }, true)
 			return itemstack
 		end
-		minetest.debug("tool.lua:60: " .. instr)
 		local is = lcore.deserialize(instr)
 		local name_s = imeta:get_string("name_s") or ""
 		local desc_s = imeta:get_string("desc_s") or ""
