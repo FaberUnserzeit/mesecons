@@ -19,7 +19,7 @@ local operations =
 	{ gate = "nor",  short = "!", fs_name = " NOR", func = function(a, b) return not (a or b) end },
 }
 
--- <PK>
+-- maps for quick index-reference:
 local m_gates_op = { ["and"]=1, ["or"]=2, ["not"]=3, ["xor"]=4, ["nand"]=5, ["buf"]=6, ["xnor"]=7, ["nor"]=8 }
 local m_fs_names_op = { [" AND"]=1, ["  OR"]=2, [" NOT"]=3, [" XOR"]=4, ["NAND"]=5, ["   ="]=6, ["XNOR"]=7, [" NOR"]=8 }
 local m_shorts_op = { ["&"]=1, ["|"]=2, ["~"]=3, ["^"]=4, ["?"]=5, ["_"]=6, ["="]=7, ["!"]=8 }
@@ -38,7 +38,6 @@ lg.find_short = function(short)
 	local i = m_shorts_op[short] 
 	return i or 0
 end
--- </PK>
 
 lg.get_operations = function()
 	return operations
@@ -61,17 +60,8 @@ lg.serialize = function(t) -- t is the array of fpga-entries.
 	end
 	-- Serialize actions (gates) from eg. "and" to "&"
 	local function _action(action)
-		-- <PK>
 		local i = lg.find_gate(action)
 		return i>0 and operations[i].short or " "
-		-- </PK>
-		-- <prev>
-		--for i, data in ipairs(operations) do
-		--	if data.gate == action then
-		--		return data.short
-		--	end
-		--end
-		--return " "
 	end
 
 	local s = ""
@@ -101,18 +91,8 @@ lg.deserialize = function(s)
 	end
 	-- Deserialize actions (gates) from eg. "&" to "and"
 	local function _action(action)
-		-- <PK>
 		local i = lg.find_short(action)
 		if (i > 0) then return operations[i].gate end
-		-- </PK>
-		-- <prev>
-		--for i, data in ipairs(operations) do
-		--	if data.short == action then
-		--		return data.gate
-		--	end
-		--end
-		-- nil
-		-- </prev>
 	end
 
 	local ret = {}
@@ -132,6 +112,7 @@ lg.deserialize = function(s)
 	end
 	-- More than 14 instructions (write to all 10 regs + 4 outputs)
 	-- will not pass the write-once requirement of the validator
+	minetest.debug("Anzahl " .. #ret)
 	assert(#ret == 14)
 	return ret
 end
@@ -164,18 +145,7 @@ lg.validate_single = function(t, i)
 	local elem = t[i]
 
 	local gate_data
-	-- <PK>
 	gate_data = operations[lg.find_gate(elem.action)]
-	-- </PK>
-	--<prev>
-	--for j, data in ipairs(operations) do
-	--	if data.gate == elem.action then
-	--		gate_data = data
-	--		break
-	--	end
-	--end
-	-- </prev>
-	-- check for completeness
 	if not gate_data then
 		return {i = i, msg = "Gate type is required"}
 	elseif gate_data.unary then
@@ -196,21 +166,11 @@ lg.validate_single = function(t, i)
 	end
 	-- check whether operands point to defined registers
 	if elem.op1 ~= nil and elem.op1.type == "reg"
-			-- <PK>
 			and not is_reg_written_to(t, elem.op1.n, 14) then
-			-- </PK>
-			-- <prev>
-			-- and not is_reg_written_to(t, elem.op1.n, i) then
-			-- </prev>
 		return {i = i, msg = "First operand is undefined register"}
 	end
 	if elem.op2.type == "reg" 
-			-- <PK>
 			and not is_reg_written_to(t, elem.op2.n, 14) then
-			-- </PK>
-			-- <prev>
-			-- and not is_reg_written_to(t, elem.op2.n, i) then
-			-- </prev>
 		return {i = i, msg = "Second operand is undefined register"}
 	end
 	-- check whether destination points to undefined register
@@ -234,26 +194,18 @@ lg.validate = function(t)
 end
 
 -- interpreter
-lg.interpret = function(t, a, b, c, d
--- <PK>
-, regs
-, pos
--- </PK>
-)
+-- parameters:
+-- t: the array containing the FPGA-entries
+-- a,b,c,d: the io-registers
+-- regs: a reference to the values of the internal registers from last call.
+--       this includes an 11th register (number 10) for the LED, special name "L"
+-- pos: the position, for error- and misbehaviour-reporting.
+lg.interpret = function(t, a, b, c, d, regs, pos)
 	local function _action(s, v1, v2)
-	-- <PK>
 		local j = lg.find_gate(s)
 		if j ~= nil and j > 0 then
 			return operations[j].func(v1, v2)
 		end
-	-- </PK>
-	-- <prev>
-		--for i, data in ipairs(operations) do
-		--	if data.gate == s then
-		--		return data.func(v1, v2)
-		--	end
-		--end
-	-- </prev>
 		return false -- unknown gate
 	end
 	local function _op(t, regs, io_in)
@@ -265,44 +217,67 @@ lg.interpret = function(t, a, b, c, d
 	end
 
 	local io_in = {A=a, B=b, C=c, D=d}
-	-- <prev> local regs = {} </prev>
 	local io_out = {}
-	-- <PK>
-	local reg_chg = false;
+	local first_refs = {} 
+	local back_reg_chg = false;
 	local reg_chk_cnt = 0
+	local startndx = 1
+	local first_iteration = true
 	repeat
-		reg_chg = false;
-	-- </PK>
-		for i = 1, 14 do
+		back_reg_chg = false;
+		for i = startndx, 14 do
 			local cur = t[i]
 			if next(cur) ~= nil then
 				local v1, v2
 				if cur.op1 ~= nil then
 					v1 = _op(cur.op1, regs, io_in)
+					if cur.op1.type == "reg" and first_refs[cur.op1.n] == nil then
+						first_refs[cur.op1.n] = i -- remember, where this register ist first used.
+						-- minetest.debug("FPGA at "..pos.x..","..pos.y..","..pos.z..": first_refs["..cur.op1.n.."]="..i)
+					end
 				end
 				v2 = _op(cur.op2, regs, io_in)
-
+				if cur.op2.type == "reg" and first_refs[cur.op2.n] == nil then
+					first_refs[cur.op2.n] = i -- remember, where this register ist first used.
+				end
 				local result = _action(cur.action, v1, v2)
 
 				if cur.dst.type == "reg" then
-					-- <PK>
 				   if (regs[cur.dst.n] ~= result) then
-						reg_chg = true
 						regs[cur.dst.n] = result
+						if first_refs[cur.dst.n] and first_refs[cur.dst.n] <= i then
+							-- a register has been set to a different value, that has been used previously: 
+							--  We must recalculate in the next iteration ... 
+							back_reg_chg = true
+							-- ... from that point on:
+							if first_iteration or startndx > first_refs[cur.dst.n] then 
+								-- if we are in the first iteration or startndx has not been set 
+								-- to a prior location than the first use of this destination register, 
+								-- then we can safely assume, that it is sufficient, to recalculate from 
+								-- there on in the next iteration.
+								startndx = first_refs[cur.dst.n] -- only recalculate what may have changed
+								-- uncomment the following line to inspect your FPGAs' behaviour in debug.txt. 
+								-- (Dont forget to re-comment it later, for it produces a LOT of output!!)
+								-- minetest.debug("FPGA at "..pos.x..","..pos.y..","..pos.z..": startndx = first_refs["..cur.dst.n.."] = "..startndx)
+							end
+						end
 					end
-					-- </PK>
 				else -- cur.dst.type == "io"
 					io_out[cur.dst.port] = result
 				end
 			end
 		end
-		-- <PK>
 		reg_chk_cnt = reg_chk_cnt + 1
-	until( (not reg_chg) or (reg_chk_cnt > 180))
-	if reg_chk_cnt > 11 then
+	until( (not back_reg_chg) or (reg_chk_cnt > 14)) -- Safe value - the highest that I could reach 
+																	 -- by reverse-chaining register-assignments was 11.
+	-- uncomment the following line to inspect your FPGAs' behaviour in debug.txt. 
+	-- (Dont forget to re-comment it later, for it produces a lot of output!)
+	-- minetest.debug("FPGA at "..pos.x..","..pos.y..","..pos.z.." iterated "..reg_chk_cnt.."times.")
+	if reg_chk_cnt > 5 then -- a ms-jk flipflop (with two NOR rs-latches and two feedbacks) 
+									-- like a counter normally performs in 2 iterations, sometimes 1, 
+									-- sometimes 3. 5 Must be evil and can be reported. ;-) 
 		minetest.debug("FPGA at "..pos.x..","..pos.y..","..pos.z.." does not behave well.")
 	end
-	-- </PK>
 	return io_out.A, io_out.B, io_out.C, io_out.D
 end
 

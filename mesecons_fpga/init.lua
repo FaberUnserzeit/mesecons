@@ -4,7 +4,7 @@ plg.rules = {}
 plg.open_formspecs = {}
 
 local lcore = dofile(minetest.get_modpath(minetest.get_current_modname()) .. "/logic.lua")
-dofile(minetest.get_modpath(minetest.get_current_modname()) .. "/tool.lua")(plg)
+dofile(minetest.get_modpath(minetest.get_current_modname()) .. "/tool.lua")(plg,lcore)
 
 plg.register_nodes = function(template)
 	for led_on = 0, 1 do
@@ -31,10 +31,10 @@ plg.register_nodes = function(template)
 		ndef.inventory_image = texture
 
 		if (led_on == 1) then
-			ndef.light_source = 8
+			ndef.light_source = 12
 		end
 
-		if (a + b + c + d) > 0 then
+		if (a + b + c + d + led_on) > 0 then
 			ndef.groups["not_in_creative_inventory"] = 1
 		end
 
@@ -101,12 +101,16 @@ plg.register_nodes({
 	on_construct = function(pos)
 		local meta = minetest.get_meta(pos)
 		local is = { {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {} }
-		local regss = "00000000000" -- the last "0" is for the LED-register number 10
+		local regs_s = "00000000000" -- the last "0" is for the LED-register number 10
+		local name_s = "" 
+		local desc_s = "" 
 
 		meta:set_string("instr", lcore.serialize(is))
 		meta:set_int("valid", 0)
 		meta:set_string("infotext", "FPGA")
-		meta:set_string("regss",regss)
+		meta:set_string("regss",regs_s)
+		meta:set_string("name_s",name_s)
+		meta:set_string("desc_s",desc_s)
 	end,
 	on_rightclick = function(pos, node, clicker)
 		if not minetest.is_player(clicker) then
@@ -117,9 +121,22 @@ plg.register_nodes({
 		-- Erase formspecs of old FPGAs
 		meta:set_string("formspec", "")
 
+		local instr = meta:get_string("instr")
+		if (instr == "") then
+			instr = "//////////////"
+		end
 		plg.open_formspecs[name] = pos
-		local is = lcore.deserialize(meta:get_string("instr"))
-		minetest.show_formspec(name, "mesecons:fpga", plg.to_formspec_string(is, nil))
+		local is={}
+		if type(instr) == "string" then
+			minetest.debug ("Mööp");
+			is = lcore.deserialize(instr)
+		else 
+			minetest.debug ("trööt");
+			is = instr
+		end
+		local name_s = meta:get_string("name_s")
+		local desc_s = meta:get_string("desc_s")
+		minetest.show_formspec(name, "mesecons:fpga", plg.to_formspec_string(is, name_s, desc_s, nil))
 	end,
 	sounds = default.node_sound_stone_defaults(),
 	mesecons = {
@@ -141,6 +158,7 @@ plg.register_nodes({
 		end
 	end,
 	on_blast = mesecon.on_blastnode,
+
 	on_rotate = function(pos, node, user, mode)
 		local abcd1 = {"A", "B", "C", "D"}
 		local abcd2 = {A = 1, B = 2, C = 3, D = 4}
@@ -179,9 +197,53 @@ plg.register_nodes({
 		plg.update_meta(pos, instr)
 		return true
 	end,
+
+	flipx = function(pos, node)
+		local ioflipped = { A = "C", B = "B", C = "A", D = "D" }
+		local ops = {"op1", "op2", "dst"}
+		local meta = minetest.get_meta(pos)
+		local instr = lcore.deserialize(meta:get_string("instr"))
+		for i = 1, #instr do
+			for _, op in ipairs(ops) do
+				local o = instr[i][op]
+				if o and o.type == "io" then
+					instr[i][op].port = ioflipped[o.port]
+				end
+			end
+		end
+		meta:set_string("instr", lcore.serialize(instr))
+		plg.update_meta(pos, instr)
+		if user and user:is_player() then
+			minetest.chat_send_player(user:get_player_name(),
+				"FPGA io-ports A and C have been swapped on " .. pos.x .. "," .. pos.y .. "," .. pos.z)
+		end
+		return false
+	end,
+
+	flipz = function(pos, node)
+		local ioflipped = { A = "A", B = "D", C = "C", D = "B" }
+		local ops = {"op1", "op2", "dst"}
+		local meta = minetest.get_meta(pos)
+		local instr = lcore.deserialize(meta:get_string("instr"))
+		for i = 1, #instr do
+			for _, op in ipairs(ops) do
+				local o = instr[i][op]
+				if o and o.type == "io" then
+					instr[i][op].port = ioflipped[o.port]
+				end
+			end
+		end
+		meta:set_string("instr", lcore.serialize(instr))
+		plg.update_meta(pos, instr)
+		if user and user:is_player() then
+			minetest.chat_send_player(user:get_player_name(),
+				"FPGA io-ports A and C have been swapped on " .. pos.x .. "," .. pos.y .. "," .. pos.z)
+		end
+		return false
+	end,
 })
 
-plg.to_formspec_string = function(is, err)
+plg.to_formspec_string = function(is, name_s, desc_s, err)
 	local function dropdown_op(x, y, name, val)
 		local s = "dropdown[" .. tostring(x) .. "," .. tostring(y) .. ";"
 				.. "0.75,0.5;" .. name .. ";" -- the height seems to be ignored?
@@ -213,9 +275,9 @@ plg.to_formspec_string = function(is, err)
 		return ("dropdown[%f,%f;1.125,0.5;%s;%s;%i]"):format(
 			x, y, name, table.concat(titles, ","), selected)
 	end
-	local s = "size[9,9]"..
+	local s = "size[9,11]"..
 		"label[3.4,-0.15;FPGA gate configuration]"..
-		"button[7,7.5;2,2.5;program;Program]"..
+		"button[7,9.5;2,2.5;program;Program]"..
 		"box[4.2,0.5;0.03,7;#ffffff]"..
 		"label[0.25,0.25;op. 1]"..
 		"label[1.0,0.25;gate type]"..
@@ -241,6 +303,12 @@ plg.to_formspec_string = function(is, err)
 			y = 1 - 0.25
 		end
 	end
+	y = y + 0.5
+	x = 1 - 0.5
+	s = s .. "field[" .. x .. "," .. y .. ";5,1;name_s;Name;" .. name_s .. "]" 
+	y = y + 0.4
+	s = s .. "field[" .. x .. "," .. y .. ";10,3;desc_s;Description;" .. desc_s .. "]" 
+	y = y + 0.75
 	if err then
 		local fmsg = minetest.colorize("#ff0000", minetest.formspec_escape(err.msg))
 		s = s .. plg.red_box_around(err.i) ..
@@ -275,6 +343,7 @@ plg.from_formspec_fields = function(fields)
 				return data.gate
 			end
 		end
+		--</prev>
 	end
 	local is = {}
 	for i = 1, 14 do
@@ -285,10 +354,11 @@ plg.from_formspec_fields = function(fields)
 		cur.dst = read_op(fields[tonumber(i) .. "dst"])
 		is[#is + 1] = cur
 	end
+	
 	return is
 end
 
-plg.update_meta = function(pos, is)
+plg.update_meta = function(pos, is, name_s, desc_s)
 	if type(is) == "string" then -- serialized string
 		is = lcore.deserialize(is)
 	end
@@ -297,10 +367,17 @@ plg.update_meta = function(pos, is)
 	local err = lcore.validate(is)
 	if err == nil then
 		meta:set_int("valid", 1)
-		meta:set_string("infotext", "FPGA (functional)")
+		meta:set_string("infotext", "FPGA (functional) " .. name_s)
 	else
 		meta:set_int("valid", 0)
-		meta:set_string("infotext", "FPGA")
+		meta:set_string("infotext", "FPGA " .. name_s)
+	end
+
+	if (name_s ~= nil) then 
+		meta:set_string("name_s", name_s)
+	end
+	if (desc_s ~= nil) then
+		meta:set_string("desc_s", desc_s)
 	end
 
 	-- reset ports and run programmed logic
@@ -308,9 +385,11 @@ plg.update_meta = function(pos, is)
 	plg.update(pos)
 
 	-- Refresh open formspecs
-	local form = plg.to_formspec_string(is, err)
 	for name, open_pos in pairs(plg.open_formspecs) do
 		if vector.equals(pos, open_pos) then
+			local name_s = meta:get_string("name_s") or ""
+			local desc_s = meta:get_string("desc_s") or ""
+			local form = plg.to_formspec_string(is, name_s, desc_s, err)
 			minetest.show_formspec(name, "mesecons:fpga", form)
 		end
 	end
@@ -482,9 +561,11 @@ minetest.register_on_player_receive_fields(function(player, formname, fields)
 
 	local meta = minetest.get_meta(pos)
 	local is = plg.from_formspec_fields(fields)
-
+	local name_s = fields["name_s"] or ""
+	local desc_s = fields["desc_s"] or ""
+	
 	meta:set_string("instr", lcore.serialize(is))
-	local err = plg.update_meta(pos, is)
+	local err = plg.update_meta(pos, is, name_s, desc_s)
 
 	if not err then
 		plg.open_formspecs[player_name] = nil
